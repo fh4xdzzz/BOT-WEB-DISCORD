@@ -13,9 +13,6 @@ import asyncio
 import random
 from collections import defaultdict
 
-# Agregar el directorio 'bot' al path para poder importar los módulos
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'bot'))
-
 # Import Supabase client
 from database.supabase_client import get_supabase_client
 
@@ -56,7 +53,7 @@ intents.voice_states = True
 intents.presences = True
 
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned_or('/'),
+    command_prefix=commands.when_mentioned_or('!'),
     intents=intents,
     description="TheDulcanDesign - Sistema Profesional de Servicios e Integración Web"
 )
@@ -373,8 +370,8 @@ async def setup_professional_server():
                 color=0x00ff00
             )
 
-            welcome_embed.add_field(name="Tienda", value="Usa `/tienda` para ver nuestros servicios", inline=False)
-            welcome_embed.add_field(name="Soporte", value="Usa `/ticket` para crear un ticket de soporte", inline=False)
+            welcome_embed.add_field(name="Tienda", value="Usa `!tienda` para ver nuestros servicios", inline=False)
+            welcome_embed.add_field(name="Soporte", value="Usa `!ticket` para crear un ticket de soporte", inline=False)
             welcome_embed.add_field(name="Reglas", value="Lee las reglas en #reglas", inline=False)
             welcome_embed.add_field(name="Web", value="Visita https://thedulcandesign.com", inline=False)
             welcome_embed.set_footer(text="TheDulcanDesign - Servicios Profesionales")
@@ -431,7 +428,7 @@ async def on_member_join(member):
 
         welcome_channel = discord.utils.get(guild.text_channels, name="bienvenida")
         if welcome_channel:
-            await welcome_channel.send(f"Bienvenido {member.mention}! Lee las reglas en #reglas y usa `/tienda` para ver nuestros servicios.")
+            await welcome_channel.send(f"Bienvenido {member.mention}! Lee las reglas en #reglas y usa `!tienda` para ver nuestros servicios.")
 
         logger.info(f"{member.name} joined the server")
     except Exception as e:

@@ -662,14 +662,20 @@ async def my_orders(ctx):
     
     # Obtener usuario por Discord ID
     discord_id = str(ctx.author.id)
+    logger.info(f"Buscando usuario con Discord ID: {discord_id}")
+    
     user_from_db = supabase.get_user_by_discord_id(discord_id)
     
     if not user_from_db:
+        logger.warning(f"Usuario no encontrado con Discord ID: {discord_id}")
         await ctx.send("❌ Necesitas vincular tu cuenta de Discord con tu cuenta web. Ve a https://thedulcandesign.com/perfil para vincularla.")
         return
     
+    logger.info(f"Usuario encontrado: {user_from_db['id']} - {user_from_db.get('email', 'N/A')}")
+    
     # Obtener pedidos del usuario desde Supabase
     user_orders = supabase.get_orders_by_user(user_from_db['id'])
+    logger.info(f"Pedidos encontrados: {len(user_orders) if user_orders else 0}")
     
     if not user_orders:
         await ctx.send("No tienes pedidos registrados.")

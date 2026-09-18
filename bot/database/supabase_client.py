@@ -40,15 +40,18 @@ class SupabaseClient:
 
         url = f"{self.url}/rest/v1/{table}"
 
-        # Agregar filtros
+        # Agregar filtros usando ? para el primero y & para los siguientes
         if filters:
+            first_filter = True
             for key, value in filters.items():
+                separator = '?' if first_filter else '&'
                 if isinstance(value, str):
-                    url += f"&{key}=eq.{value}"
+                    url += f"{separator}{key}=eq.{value}"
                 elif isinstance(value, list):
-                    url += f"&{key}=in.({','.join(map(str, value))})"
+                    url += f"{separator}{key}=in.({','.join(map(str, value))})"
                 else:
-                    url += f"&{key}=eq.{value}"
+                    url += f"{separator}{key}=eq.{value}"
+                first_filter = False
 
         # Agregar ID específico
         if table_id:

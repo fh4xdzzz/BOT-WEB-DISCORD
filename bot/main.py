@@ -11,6 +11,7 @@ import requests
 import json
 import asyncio
 import random
+import hmac
 from collections import defaultdict
 
 # Agregar el directorio 'bot' al path para poder importar los módulos
@@ -124,23 +125,27 @@ def webhook():
         webhook_secret = os.getenv('DISCORD_WEBHOOK_SECRET')
         auth_header = request.headers.get('Authorization')
 
-        if webhook_secret and auth_header:
-            if not auth_header.startswith('Bearer '):
-                logger.error("Webhook sin autenticación válida")
-                return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+        if not webhook_secret:
+            logger.error("DISCORD_WEBHOOK_SECRET no configurado")
+            return jsonify({'success': False, 'message': 'Webhook no configurado'}), 503
 
-            token = auth_header[7:]  # Remove 'Bearer '
-            if token != webhook_secret:
-                logger.error("Token webhook inválido")
-                return jsonify({'success': False, 'message': 'Forbidden'}), 403
+        if not auth_header or not auth_header.startswith('Bearer '):
+            logger.error("Webhook sin autenticación válida")
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+
+        token = auth_header[7:]
+        if not hmac.compare_digest(token, webhook_secret):
+            logger.error("Token webhook inválido")
+            return jsonify({'success': False, 'message': 'Forbidden'}), 403
 
         # Procesar evento con EventProcessor
         if event_processor:
             # Ejecutar en loop del bot
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 event_processor.process_event(data),
                 bot.loop
             )
+            future.add_done_callback(log_webhook_result)
             return jsonify({'success': True, 'message': 'Evento procesado'}), 200
         else:
             logger.error("EventProcessor no inicializado")
@@ -149,6 +154,21 @@ def webhook():
     except Exception as e:
         logger.error(f"Error en webhook: {e}")
         return jsonify({'success': False, 'message': 'Error interno'}), 500
+
+def log_webhook_result(future):
+    try:
+        if not future.result():
+            logger.error("El evento del webhook no pudo procesarse")
+    except Exception:
+        logger.exception("Error asíncrono procesando webhook")
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'status': 'ok',
+        'discord_ready': bot.is_ready(),
+        'event_processor_ready': event_processor is not None,
+    }), 200
 
 async def create_order_from_web(order_data):
     """Crear pedido en Discord desde pedido web"""
@@ -956,13 +976,15 @@ async def ping(ctx):
     await ctx.send(embed=embed)
 
 def run_flask():
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    webhook_port = int(os.getenv('WEBHOOK_PORT') or os.getenv('SERVER_PORT') or os.getenv('PORT') or '25717')
+    app.run(host='0.0.0.0', port=webhook_port, debug=False)
 
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    logger.info("Flask webhook server iniciado en puerto 5000")
+    webhook_port = int(os.getenv('WEBHOOK_PORT') or os.getenv('SERVER_PORT') or os.getenv('PORT') or '25717')
+    logger.info(f"Flask webhook server iniciado en puerto {webhook_port}")
 
     try:
         bot.run(TOKEN)

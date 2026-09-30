@@ -3,6 +3,8 @@ Event Processor - Sistema de procesamiento de eventos profesionales
 Procesa eventos desde la web y genera embeds profesionales en Discord
 """
 
+import os
+import json
 import discord
 from datetime import datetime
 from typing import Dict, Any
@@ -184,7 +186,7 @@ class EventProcessor:
         embed.set_footer(text=f"ID evento: {event.get('event_id')} | TheDulcanDesign")
         embed.set_timestamp(datetime.fromisoformat(event.get('created_at')))
 
-        await self.send_to_channel('staff', embed)
+        await self.notify_support_team(embed)
 
     async def handle_ticket_message(self, event: Dict[str, Any]):
         """Manejar evento de mensaje en ticket"""
@@ -204,7 +206,10 @@ class EventProcessor:
         embed.set_footer(text=f"ID evento: {event.get('event_id')} | TheDulcanDesign")
         embed.set_timestamp(datetime.fromisoformat(event.get('created_at')))
 
-        await self.send_to_channel('staff', embed)
+        if payload.get('sender') == 'staff':
+            await self.notify_customer(payload, embed)
+        else:
+            await self.notify_support_team(embed)
 
     async def handle_user_created(self, event: Dict[str, Any]):
         """Manejar evento de usuario creado"""
@@ -278,36 +283,56 @@ class EventProcessor:
 
     async def notify_admins_and_owners(self, embed: discord.Embed):
         """Enviar notificación directa a usuarios con roles admin y owner"""
+        await self.notify_support_team(embed, include_staff=False)
+
+    async def notify_support_team(self, embed: discord.Embed, include_staff: bool = True):
+        """Enviar una notificación privada a administradores y personal autorizado."""
         try:
+            configured_role_ids = {
+                role_id for role_id in (
+                    os.getenv('DISCORD_ADMIN_ROLE_ID'),
+                    os.getenv('DISCORD_STAFF_ROLE_ID') if include_staff else None,
+                ) if role_id
+            }
+
             for guild in self.bot.guilds:
-                # Buscar roles admin y owner
-                admin_role = discord.utils.get(guild.roles, name='admin')
-                owner_role = discord.utils.get(guild.roles, name='owner')
+                members_to_notify = {guild.owner} if guild.owner else set()
+                fallback_names = {'admin', 'administrador', 'owner'}
+                if include_staff:
+                    fallback_names.update({'staff', 'soporte'})
 
-                if not admin_role and not owner_role:
-                    logger.warning(f"No se encontraron roles admin u owner en {guild.name}")
-                    continue
+                for member in guild.members:
+                    if member.bot:
+                        continue
+                    member_role_ids = {str(role.id) for role in member.roles}
+                    member_role_names = {role.name.casefold() for role in member.roles}
+                    if configured_role_ids.intersection(member_role_ids) or fallback_names.intersection(member_role_names):
+                        members_to_notify.add(member)
 
-                # Obtener miembros con estos roles
-                members_to_notify = set()
-
-                if admin_role:
-                    for member in guild.members:
-                        if admin_role in member.roles:
-                            members_to_notify.add(member)
-
-                if owner_role:
-                    for member in guild.members:
-                        if owner_role in member.roles:
-                            members_to_notify.add(member)
-
-                # Enviar DM a cada miembro
                 for member in members_to_notify:
                     try:
                         await member.send(embed=embed)
                         logger.info(f"Notificación enviada a {member.name} ({member.id})")
+                    except discord.Forbidden:
+                        logger.warning(f"DM bloqueado por {member.name} ({member.id})")
                     except Exception as e:
                         logger.error(f"Error enviando DM a {member.name}: {e}")
 
         except Exception as e:
-            logger.error(f"Error notificando admins y owners: {e}")
+            logger.error(f"Error notificando al equipo de soporte: {e}")
+
+    async def notify_customer(self, payload: Dict[str, Any], embed: discord.Embed):
+        """Enviar al cliente por DM las respuestas privadas del personal."""
+        discord_user_id = payload.get('discord_user_id')
+        if not discord_user_id:
+            logger.warning("No se envió DM al cliente: la cuenta web no tiene Discord vinculado")
+            return
+
+        try:
+            user = self.bot.get_user(int(discord_user_id)) or await self.bot.fetch_user(int(discord_user_id))
+            await user.send(embed=embed)
+            logger.info(f"Respuesta privada enviada al cliente de Discord {discord_user_id}")
+        except (ValueError, discord.Forbidden, discord.NotFound) as error:
+            logger.warning(f"No se pudo enviar DM al cliente {discord_user_id}: {error}")
+        except Exception as error:
+            logger.error(f"Error enviando DM al cliente {discord_user_id}: {error}")
